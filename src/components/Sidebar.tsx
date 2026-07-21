@@ -1,4 +1,4 @@
-import { Inbox, Star, Send, FileText, Trash2, LogOut, PenSquare, Tag, User as UserIcon, Loader2 } from 'lucide-react';
+import { Inbox, Star, Send, FileText, Trash2, LogOut, PenSquare, Tag, User as UserIcon, Loader2, Code } from 'lucide-react';
 import { GmailLabel, GmailFolder } from '../types';
 
 interface SidebarProps {
@@ -87,6 +87,27 @@ export default function Sidebar({
                 </button>
               );
             })}
+          </nav>
+        </div>
+
+        {/* Developer API Section */}
+        <div>
+          <span className="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Integrations</span>
+          <nav className="space-y-1">
+            <button
+              onClick={() => onSelectFolder('API_SYSTEM')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                currentFolder === 'API_SYSTEM'
+                  ? 'bg-blue-600 text-white font-semibold'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+              id="folder-api-system"
+            >
+              <div className="flex items-center gap-3">
+                <Code className={`h-4 w-4 ${currentFolder === 'API_SYSTEM' ? 'text-white' : 'text-slate-500'}`} />
+                <span>FamApp Developer API</span>
+              </div>
+            </button>
           </nav>
         </div>
 

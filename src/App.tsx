@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { GmailMessage, GmailLabel, GmailFolder, GmailProfile } from './types';
-import { initAuth, googleSignIn, googleLogout, setAccessToken } from './lib/firebase';
+import { initAuth, googleSignIn, googleLogout, setAccessToken, saveTransaction } from './lib/firebase';
 import {
   getProfile,
   listLabels,
@@ -9,7 +9,8 @@ import {
   batchGetMessages,
   modifyMessageLabels,
   trashMessage,
-  sendMessage
+  sendMessage,
+  parseFamAppEmail
 } from './lib/gmail';
 
 import AuthScreen from './components/AuthScreen';
@@ -17,6 +18,7 @@ import Sidebar from './components/Sidebar';
 import MailList from './components/MailList';
 import MailDetail from './components/MailDetail';
 import ComposeModal from './components/ComposeModal';
+import ApiSystemDashboard from './components/ApiSystemDashboard';
 import { Loader2, MailWarning, AlertCircle } from 'lucide-react';
 
 export default function App() {
@@ -40,6 +42,7 @@ export default function App() {
   // Loading indicators
   const [loadingLabels, setLoadingLabels] = useState(false);
   const [loadingEmails, setLoadingEmails] = useState(false);
+  const [syncingGmail, setSyncingGmail] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
 
   // Modals
@@ -129,6 +132,20 @@ export default function App() {
       
       setEmails(fullMessages);
       setNextPageToken(listData.nextPageToken);
+
+      // Auto Sync FamApp transactions to Firestore
+      if (user?.uid && fullMessages && fullMessages.length > 0) {
+        for (const msg of fullMessages) {
+          try {
+            const parsed = parseFamAppEmail(msg.body, msg.snippet);
+            if (parsed) {
+              await saveTransaction(user.uid, parsed);
+            }
+          } catch (syncErr) {
+            console.error('Error auto-syncing email to Firestore:', syncErr);
+          }
+        }
+      }
 
       if (isNewFilter) {
         setPageHistory([]);
@@ -351,6 +368,36 @@ export default function App() {
     loadEmailsList(targetToken);
   };
 
+  const handleManualSync = async () => {
+    if (!token || !user?.uid) return;
+    setSyncingGmail(true);
+    try {
+      // Search INBOX specifically for FamApp / FamX related messages to sync them
+      const listData = await listMessages(token, 'INBOX', 'FamApp OR FamX OR FMP');
+      const messageIds = (listData.messages || []).map(m => m.id);
+      
+      // Batch fetch full details
+      const fullMessages = await batchGetMessages(token, messageIds);
+      
+      // Parse & Sync
+      for (const msg of fullMessages) {
+        try {
+          const parsed = parseFamAppEmail(msg.body, msg.snippet);
+          if (parsed) {
+            await saveTransaction(user.uid, parsed);
+          }
+        } catch (syncErr) {
+          console.error('Error parsing during manual sync:', syncErr);
+        }
+      }
+    } catch (err) {
+      console.error('Manual sync failed:', err);
+      throw err;
+    } finally {
+      setSyncingGmail(false);
+    }
+  };
+
   // Show a full loader during auth verification
   if (checkingAuth) {
     return (
@@ -411,32 +458,43 @@ export default function App() {
           </div>
         )}
 
-        {/* Mail List Panel (Middle) */}
-        <MailList
-          emails={emails}
-          loading={loadingEmails}
-          selectedEmailId={selectedEmail?.id || null}
-          onSelectEmail={handleSelectEmail}
-          onToggleStar={handleToggleStar}
-          onRefresh={() => loadEmailsList()}
-          folderName={folderTitle}
-          onSearch={setSearchQuery}
-          hasMore={!!nextPageToken}
-          onLoadMore={handleLoadMore}
-          onLoadPrevious={handleLoadPrevious}
-          isFirstPage={pageHistory.length === 0}
-        />
+        {currentFolder === 'API_SYSTEM' ? (
+          <ApiSystemDashboard
+            userId={user?.uid || ''}
+            userEmail={profile?.emailAddress || user?.email || ''}
+            onManualSync={handleManualSync}
+            syncing={syncingGmail}
+          />
+        ) : (
+          <>
+            {/* Mail List Panel (Middle) */}
+            <MailList
+              emails={emails}
+              loading={loadingEmails}
+              selectedEmailId={selectedEmail?.id || null}
+              onSelectEmail={handleSelectEmail}
+              onToggleStar={handleToggleStar}
+              onRefresh={() => loadEmailsList()}
+              folderName={folderTitle}
+              onSearch={setSearchQuery}
+              hasMore={!!nextPageToken}
+              onLoadMore={handleLoadMore}
+              onLoadPrevious={handleLoadPrevious}
+              isFirstPage={pageHistory.length === 0}
+            />
 
-        {/* Mail Detail Viewer Panel (Right) */}
-        <MailDetail
-          email={selectedEmail}
-          onToggleStar={handleToggleStar}
-          onToggleRead={handleToggleRead}
-          onArchive={handleArchive}
-          onTrash={handleTrash}
-          onReply={handleReply}
-          onForward={handleForward}
-        />
+            {/* Mail Detail Viewer Panel (Right) */}
+            <MailDetail
+              email={selectedEmail}
+              onToggleStar={handleToggleStar}
+              onToggleRead={handleToggleRead}
+              onArchive={handleArchive}
+              onTrash={handleTrash}
+              onReply={handleReply}
+              onForward={handleForward}
+            />
+          </>
+        )}
       </main>
 
       {/* Floating Compose modal */}

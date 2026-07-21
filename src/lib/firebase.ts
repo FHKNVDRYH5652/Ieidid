@@ -111,3 +111,99 @@ export const googleLogout = async () => {
     console.error('Error writing localStorage', e);
   }
 };
+
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  getDocs, 
+  query, 
+  where, 
+  orderBy, 
+  limit 
+} from 'firebase/firestore';
+
+export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || '(default)');
+
+// Get or generate API Key for a user
+export const getOrCreateApiKey = async (userId: string, email: string): Promise<string> => {
+  const userDocRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userDocRef);
+  
+  if (userSnap.exists()) {
+    const data = userSnap.data();
+    if (data.apiKey) {
+      return data.apiKey;
+    }
+  }
+  
+  // Generate a new api key
+  const rand1 = Math.random().toString(36).substring(2, 10);
+  const rand2 = Math.random().toString(36).substring(2, 10);
+  const apiKey = `fam_${rand1}${rand2}`;
+  
+  // Save to users collection
+  await setDoc(userDocRef, {
+    userId,
+    email,
+    apiKey,
+    createdAt: Date.now()
+  }, { merge: true });
+  
+  // Save to api_keys reverse lookup collection
+  const apiKeyDocRef = doc(db, 'api_keys', apiKey);
+  await setDoc(apiKeyDocRef, {
+    userId,
+    email,
+    apiKey,
+    createdAt: Date.now()
+  });
+  
+  return apiKey;
+};
+
+// Save a parsed transaction to Firestore
+export const saveTransaction = async (userId: string, tx: {
+  amount: string;
+  fromPay: string;
+  transactionId: string;
+  utr: string;
+  time: string;
+  purpose: string;
+}) => {
+  // Use transactionId or emailId as doc ID to avoid duplicates
+  const docId = tx.transactionId && tx.transactionId !== 'N/A' 
+    ? tx.transactionId 
+    : `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    
+  const txDocRef = doc(db, 'transactions', docId);
+  await setDoc(txDocRef, {
+    id: docId,
+    userId,
+    amount: tx.amount,
+    fromPay: tx.fromPay,
+    transactionId: tx.transactionId,
+    utr: tx.utr,
+    time: tx.time,
+    purpose: tx.purpose,
+    createdAt: Date.now()
+  }, { merge: true });
+};
+
+// Get user's transactions
+export const getUserTransactions = async (userId: string) => {
+  const q = query(
+    collection(db, 'transactions'),
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc'),
+    limit(50)
+  );
+  const querySnapshot = await getDocs(q);
+  const transactions: any[] = [];
+  querySnapshot.forEach((doc) => {
+    transactions.push(doc.data());
+  });
+  return transactions;
+};

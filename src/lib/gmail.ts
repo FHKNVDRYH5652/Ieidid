@@ -318,3 +318,90 @@ export const sendMessage = async (
 
   return await response.json();
 };
+
+export interface ParsedFamAppTransaction {
+  amount: string;
+  fromPay: string;
+  transactionId: string;
+  utr: string;
+  time: string;
+  purpose: string;
+}
+
+export function parseFamAppEmail(bodyText: string, snippetText: string): ParsedFamAppTransaction | null {
+  // Check if it's actually a FamApp email
+  const isFamApp = 
+    bodyText.toLowerCase().includes('famapp') || 
+    bodyText.toLowerCase().includes('famx') || 
+    snippetText.toLowerCase().includes('famapp') ||
+    snippetText.toLowerCase().includes('famx') ||
+    bodyText.toLowerCase().includes('fmpib');
+
+  if (!isFamApp) return null;
+
+  // Clean HTML elements and normalize whitespace
+  const cleanText = bodyText
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#8377;/g, '₹') // currency entity
+    .replace(/\s+/g, ' ');
+
+  // Extraction logic
+  // 1. Amount: Look for ₹ currency and decimals/digits
+  let amount = '₹0.0';
+  const amountMatch = cleanText.match(/(?:received|saved|of)\s*₹\s*([0-9.,]+)/i) || cleanText.match(/₹\s*([0-9.,]+)/);
+  if (amountMatch) {
+    amount = '₹' + amountMatch[1];
+  } else {
+    // try snippet
+    const snippetAmount = snippetText.match(/₹\s*([0-9.,]+)/);
+    if (snippetAmount) {
+      amount = '₹' + snippetAmount[1];
+    }
+  }
+
+  // 2. From (Payee / Sender):
+  let fromPay = 'Unknown Sender';
+  const fromMatch = cleanText.match(/from\s+([A-Za-z\s]{3,25})(?=\s*(?:Transaction ID|Date|Updated Balance|UTR|Purpose|If this|$))/i);
+  if (fromMatch) {
+    fromPay = fromMatch[1].trim();
+  }
+
+  // 3. Transaction ID:
+  let transactionId = 'N/A';
+  const txMatch = cleanText.match(/Transaction\s+ID\s*:\s*([A-Z0-9]+)/i);
+  if (txMatch) {
+    transactionId = txMatch[1].trim();
+  }
+
+  // 4. UTR:
+  let utr = 'N/A';
+  const utrMatch = cleanText.match(/UTR\s*:\s*(\d+)/i);
+  if (utrMatch) {
+    utr = utrMatch[1].trim();
+  }
+
+  // 5. Time (Date):
+  let time = 'N/A';
+  const dateMatch = cleanText.match(/Date\s*:\s*([A-Za-z0-9\s,:]+?)(?=\s*(?:Updated Balance|UTR|Purpose|If this|$))/i);
+  if (dateMatch) {
+    time = dateMatch[1].trim();
+  }
+
+  // 6. Purpose:
+  let purpose = 'N/A';
+  const purposeMatch = cleanText.match(/Purpose\s*:\s*([A-Za-z0-9\s]+?)(?=\s*(?:If this|Updated Balance|UTR|$))/i);
+  if (purposeMatch) {
+    purpose = purposeMatch[1].trim();
+  }
+
+  return {
+    amount,
+    fromPay,
+    transactionId,
+    utr,
+    time,
+    purpose
+  };
+}

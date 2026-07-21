@@ -28,7 +28,8 @@ let isSigningIn = false;
 
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
-  onAuthFailure?: () => void
+  onAuthFailure?: () => void,
+  onFirebaseOnly?: (user: User) => void
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
@@ -42,9 +43,12 @@ export const initAuth = (
       
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        // If logged into Firebase but we don't have the cached access token, we will need the user to click sign-in
-        if (onAuthFailure) onAuthFailure();
+      } else {
+        if (onFirebaseOnly) {
+          onFirebaseOnly(user);
+        } else if (!isSigningIn && onAuthFailure) {
+          onAuthFailure();
+        }
       }
     } else {
       cachedAccessToken = null;
@@ -122,10 +126,48 @@ import {
   query, 
   where, 
   orderBy, 
-  limit 
+  limit,
+  deleteDoc
 } from 'firebase/firestore';
 
 export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || '(default)');
+
+// Save or update custom API Key for a user
+export const saveCustomApiKey = async (userId: string, email: string, customApiKey: string, oldApiKey?: string): Promise<void> => {
+  if (!customApiKey || !customApiKey.trim()) {
+    throw new Error("API key cannot be empty.");
+  }
+  
+  const cleanKey = customApiKey.trim();
+  
+  // If we have an old api key and it is different from the new key, let's delete the old key's reverse-lookup record
+  if (oldApiKey && oldApiKey !== cleanKey) {
+    const oldApiKeyRef = doc(db, 'api_keys', oldApiKey);
+    try {
+      await deleteDoc(oldApiKeyRef);
+    } catch (err) {
+      console.warn('Could not delete old api key lookup:', err);
+    }
+  }
+
+  // Create new reverse lookup entry
+  const newApiKeyRef = doc(db, 'api_keys', cleanKey);
+  await setDoc(newApiKeyRef, {
+    userId,
+    email,
+    apiKey: cleanKey,
+    createdAt: Date.now()
+  });
+
+  // Update user's profile to point to this api key
+  const userDocRef = doc(db, 'users', userId);
+  await setDoc(userDocRef, {
+    userId,
+    email,
+    apiKey: cleanKey,
+    updatedAt: Date.now()
+  }, { merge: true });
+};
 
 // Get or generate API Key for a user
 export const getOrCreateApiKey = async (userId: string, email: string): Promise<string> => {

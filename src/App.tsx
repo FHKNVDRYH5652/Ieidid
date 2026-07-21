@@ -71,6 +71,12 @@ export default function App() {
       () => {
         setNeedsAuth(true);
         setCheckingAuth(false);
+      },
+      (currentUser) => {
+        setUser(currentUser);
+        setToken(null);
+        setNeedsAuth(false);
+        setCheckingAuth(false);
       }
     );
     return () => unsubscribe();
@@ -80,6 +86,10 @@ export default function App() {
   useEffect(() => {
     if (token) {
       loadProfileAndLabels();
+    } else {
+      setProfile(null);
+      setLabels([]);
+      setEmails([]);
     }
   }, [token]);
 
@@ -107,9 +117,10 @@ export default function App() {
       setLabels(labelList);
     } catch (err: any) {
       console.error('Error loading profile or labels:', err);
-      // If unauthorized, token might be expired. Require re-auth.
+      // If unauthorized, token might be expired. Just set token to null so they can re-authorize.
       if (err.message?.includes('401') || err.message?.includes('Unauthorized')) {
-        handleLogout();
+        setToken(null);
+        setGeneralError('Your Gmail connection has expired. Please connect your Gmail account again to sync newer transactions.');
       } else {
         setGeneralError('Could not sync labels or profile information with Gmail.');
       }
@@ -153,7 +164,8 @@ export default function App() {
     } catch (err: any) {
       console.error('Error loading emails:', err);
       if (err.message?.includes('401')) {
-        handleLogout();
+        setToken(null);
+        setGeneralError('Your Gmail connection has expired. Please connect your Gmail account again to view emails.');
       } else {
         setGeneralError('Failed to load emails from your Gmail account. Please try refreshing.');
       }
@@ -303,6 +315,10 @@ export default function App() {
 
   // Compose / Reply / Forward Modals
   const handleCompose = () => {
+    if (!token) {
+      setGeneralError('Please connect your Gmail account to compose and send emails.');
+      return;
+    }
     setReplyToEmail(null);
     setComposeOpen(true);
   };
@@ -465,6 +481,26 @@ export default function App() {
             onManualSync={handleManualSync}
             syncing={syncingGmail}
           />
+        ) : !token ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50 text-center font-sans">
+            <div className="max-w-md bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center gap-5">
+              <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner">
+                <AlertCircle className="h-8 w-8" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 mb-1">Gmail Connection Required</h3>
+                <p className="text-slate-500 text-xs leading-relaxed">
+                  To view, search, and synchronize your emails directly with the Developer API system, please connect and authorize your Gmail account.
+                </p>
+              </div>
+              <button
+                onClick={handleLogin}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-md shadow-blue-600/10 transition-all cursor-pointer flex items-center gap-2"
+              >
+                Connect Gmail Account
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             {/* Mail List Panel (Middle) */}

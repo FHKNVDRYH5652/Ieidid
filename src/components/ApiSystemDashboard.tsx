@@ -10,9 +10,12 @@ import {
   ArrowRight, 
   TrendingDown, 
   TrendingUp, 
-  Layers 
+  Layers,
+  X,
+  Sparkles,
+  Clock
 } from 'lucide-react';
-import { getOrCreateApiKey, getUserTransactions } from '../lib/firebase';
+import { getOrCreateApiKey, getUserTransactions, saveCustomApiKey } from '../lib/firebase';
 
 interface ApiSystemDashboardProps {
   userId: string;
@@ -34,16 +37,68 @@ export default function ApiSystemDashboard({
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState<boolean>(false);
   const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
+  const [loadingApiKey, setLoadingApiKey] = useState<boolean>(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+
+  // States for Custom API Key modification
+  const [isEditingKey, setIsEditingKey] = useState<boolean>(false);
+  const [customKeyInput, setCustomKeyInput] = useState<string>('');
+  const [updatingKey, setUpdatingKey] = useState<boolean>(false);
+  const [keyUpdateSuccess, setKeyUpdateSuccess] = useState<boolean>(false);
+
+  // States for Real-Time Background Auto-Sync
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(true);
+  const [autoSyncStatus, setAutoSyncStatus] = useState<string>('Ready');
+  const [lastCheckedTime, setLastCheckedTime] = useState<string>('Never');
 
   // Load or generate API Key
   const loadApiKey = async () => {
+    setLoadingApiKey(true);
+    setApiKeyError(null);
     try {
       const key = await getOrCreateApiKey(userId, userEmail);
       setApiKey(key);
-    } catch (err) {
+      setCustomKeyInput(key);
+    } catch (err: any) {
       console.error('Error fetching API key:', err);
+      setApiKeyError(err.message || String(err));
+    } finally {
+      setLoadingApiKey(false);
     }
   };
+
+  // Automated Real-Time Background Sync
+  useEffect(() => {
+    if (!autoSyncEnabled || !userId) return;
+
+    const performBackgroundSync = async () => {
+      setAutoSyncStatus('Syncing...');
+      try {
+        await onManualSync();
+        await loadTransactions();
+        const now = new Date();
+        setLastCheckedTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        setAutoSyncStatus('Active & Idle');
+      } catch (err) {
+        console.warn('Automatic background sync failed:', err);
+        setAutoSyncStatus('Failed (Retrying soon)');
+      }
+    };
+
+    // Run first background scan after 3 seconds, then every 30 seconds
+    const initialTimer = setTimeout(() => {
+      performBackgroundSync();
+    }, 3000);
+
+    const intervalId = setInterval(() => {
+      performBackgroundSync();
+    }, 30000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalId);
+    };
+  }, [autoSyncEnabled, userId]);
 
   // Load synced transactions from Firestore
   const loadTransactions = async () => {
@@ -56,6 +111,33 @@ export default function ApiSystemDashboard({
     } finally {
       setLoadingTransactions(false);
     }
+  };
+
+  const handleSaveCustomKey = async () => {
+    if (!customKeyInput.trim()) {
+      setApiKeyError("API Key cannot be empty.");
+      return;
+    }
+    setUpdatingKey(true);
+    setApiKeyError(null);
+    try {
+      await saveCustomApiKey(userId, userEmail, customKeyInput.trim(), apiKey);
+      setApiKey(customKeyInput.trim());
+      setIsEditingKey(false);
+      setKeyUpdateSuccess(true);
+      setTimeout(() => setKeyUpdateSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Error updating custom API Key:', err);
+      setApiKeyError(err.message || String(err));
+    } finally {
+      setUpdatingKey(false);
+    }
+  };
+
+  const handleGenerateRandomKey = () => {
+    const rand1 = Math.random().toString(36).substring(2, 10);
+    const rand2 = Math.random().toString(36).substring(2, 10);
+    setCustomKeyInput(`fam_${rand1}${rand2}`);
   };
 
   useEffect(() => {
@@ -102,12 +184,21 @@ export default function ApiSystemDashboard({
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-50 overflow-y-auto p-6 md:p-8" id="api-dashboard">
       {/* Header */}
-      <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1.5">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 uppercase tracking-wider flex items-center gap-1">
               <Database className="h-3 w-3" /> Live Sync
             </span>
+            {autoSyncEnabled ? (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider flex items-center gap-1.5 animate-pulse">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Auto-Forwarding Active
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider flex items-center gap-1">
+                ⚠️ Auto-Sync Paused
+              </span>
+            )}
           </div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <Code className="h-6 w-6 text-blue-600" /> FamApp Developer API Panel
@@ -117,20 +208,53 @@ export default function ApiSystemDashboard({
           </p>
         </div>
 
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-semibold text-xs rounded-xl flex items-center gap-2 shadow-sm cursor-pointer transition-all shrink-0"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-          <span>{syncing ? 'Syncing Gmail...' : 'Scan & Sync Gmail Now'}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Automated polling monitor */}
+          <div className="bg-white border border-slate-200 rounded-xl px-4 py-2 flex items-center gap-3 text-xs shadow-sm">
+            <div className="relative flex h-2.5 w-2.5">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${autoSyncEnabled ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${autoSyncEnabled ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+            </div>
+            <div>
+              <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+                Gmail Auto-Sync: 
+                <button 
+                  onClick={() => setAutoSyncEnabled(!autoSyncEnabled)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-all ${autoSyncEnabled ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'}`}
+                >
+                  {autoSyncEnabled ? 'Pause' : 'Resume'}
+                </button>
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                <span>Status: {autoSyncStatus}</span>
+                <span>•</span>
+                <span>Checked: {lastCheckedTime}</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-semibold text-xs rounded-xl flex items-center gap-2 shadow-sm cursor-pointer transition-all shrink-0 h-[42px]"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            <span>{syncing ? 'Syncing Gmail...' : 'Scan & Sync Gmail Now'}</span>
+          </button>
+        </div>
       </div>
 
       {syncSuccess && (
         <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex gap-2 items-center">
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
           <span className="font-medium">{syncSuccess}</span>
+        </div>
+      )}
+
+      {keyUpdateSuccess && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs flex gap-2 items-center">
+          <Sparkles className="h-4 w-4 text-blue-600 shrink-0" />
+          <span className="font-semibold">Custom API Key Updated Successfully! All future GET calls will use your new key.</span>
         </div>
       )}
 
@@ -146,26 +270,104 @@ export default function ApiSystemDashboard({
                 Active
               </span>
             </div>
-            <h3 className="font-bold text-slate-900 text-sm mb-1">Your secure API Key</h3>
-            <p className="text-slate-500 text-xs mb-4">Use this token to query your transaction endpoint from third-party tools.</p>
+            <h3 className="font-bold text-slate-900 text-sm mb-1">Your Custom API Key</h3>
+            <p className="text-slate-500 text-xs mb-4">Set or customize your key to easily authenticate external webhook queries.</p>
           </div>
 
           <div>
-            <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl mb-3">
-              <span className="font-mono text-xs select-all text-slate-700 flex-1 overflow-x-auto truncate">
-                {showKey ? apiKey : 'fam_••••••••••••••••••••'}
-              </span>
-              <button
-                onClick={() => setShowKey(!showKey)}
-                className="text-[10px] font-bold text-slate-500 hover:text-slate-800 uppercase px-1.5 py-0.5 rounded hover:bg-slate-200"
-              >
-                {showKey ? 'Hide' : 'Show'}
-              </button>
-            </div>
+            {loadingApiKey ? (
+              <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl mb-3 justify-center">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-600" />
+                <span className="text-xs text-slate-500">Retrieving API Key...</span>
+              </div>
+            ) : apiKeyError ? (
+              <div className="p-3 bg-red-50 border border-red-150 rounded-xl mb-3">
+                <span className="text-[11px] text-red-700 block font-semibold mb-1">Failed to load API key</span>
+                <span className="text-[10px] text-red-500 font-mono block break-words leading-relaxed">{apiKeyError}</span>
+                <button
+                  onClick={loadApiKey}
+                  className="mt-2 text-[10px] font-bold text-red-700 hover:text-red-900 underline cursor-pointer block"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : isEditingKey ? (
+              <div className="flex flex-col gap-2 mb-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Choose Custom API Key</label>
+                <input
+                  type="text"
+                  value={customKeyInput}
+                  onChange={(e) => setCustomKeyInput(e.target.value)}
+                  placeholder="e.g. my_private_api_key_123"
+                  className="w-full text-xs font-mono p-2 border border-slate-200 rounded-lg bg-white outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <div className="flex gap-2.5 mt-1">
+                  <button
+                    onClick={handleGenerateRandomKey}
+                    className="text-[10px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-2.5 py-1.5 rounded-lg font-semibold flex-1 transition-all cursor-pointer"
+                  >
+                    🎲 Random Key
+                  </button>
+                  <button
+                    onClick={handleSaveCustomKey}
+                    disabled={updatingKey}
+                    className="text-[10px] bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-3 py-1.5 rounded-lg font-bold flex-1 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    {updatingKey ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                    Save Key
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditingKey(false);
+                      setCustomKeyInput(apiKey);
+                    }}
+                    className="text-[10px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 p-1.5 rounded-lg transition-all cursor-pointer"
+                    title="Cancel"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ) : apiKey ? (
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1 flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+                  <span className="font-mono text-xs select-all text-slate-700 flex-1 overflow-x-auto truncate">
+                    {showKey ? apiKey : 'fam_••••••••••••••••••••'}
+                  </span>
+                  <button
+                    onClick={() => setShowKey(!showKey)}
+                    className="text-[10px] font-bold text-slate-500 hover:text-slate-800 uppercase px-1.5 py-0.5 rounded hover:bg-slate-200"
+                  >
+                    {showKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <button
+                  onClick={() => {
+                    setCustomKeyInput(apiKey);
+                    setIsEditingKey(true);
+                  }}
+                  className="px-3.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center cursor-pointer font-bold"
+                  title="Customize API Key"
+                >
+                  ✏️
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl mb-3 items-center justify-center text-center">
+                <span className="text-xs text-amber-700 font-semibold">No API Key Generated</span>
+                <button
+                  onClick={loadApiKey}
+                  className="text-[10px] bg-amber-600 hover:bg-amber-700 text-white font-bold py-1 px-3 rounded-lg cursor-pointer transition-all"
+                >
+                  Generate Key
+                </button>
+              </div>
+            )}
 
             <button
               onClick={handleCopyKey}
-              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all"
+              disabled={!apiKey || isEditingKey}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-400 text-slate-700 text-xs font-semibold rounded-xl transition-all cursor-pointer disabled:cursor-not-allowed"
             >
               {copiedKey ? (
                 <>

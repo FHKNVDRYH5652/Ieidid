@@ -16,8 +16,14 @@ provider.setCustomParameters({
   prompt: 'select_account'
 });
 
-// Cache the access token in memory
+// Cache the access token in memory and local storage
+const LOCAL_STORAGE_KEY = 'gmail_dashboard_google_token';
 let cachedAccessToken: string | null = null;
+try {
+  cachedAccessToken = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_KEY) : null;
+} catch (e) {
+  console.error('Error reading localStorage', e);
+}
 let isSigningIn = false;
 
 export const initAuth = (
@@ -26,6 +32,14 @@ export const initAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
+      if (!cachedAccessToken) {
+        try {
+          cachedAccessToken = localStorage.getItem(LOCAL_STORAGE_KEY);
+        } catch (e) {
+          console.error('Error reading localStorage', e);
+        }
+      }
+      
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
@@ -34,6 +48,11 @@ export const initAuth = (
       }
     } else {
       cachedAccessToken = null;
+      try {
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
+      } catch (e) {
+        console.error('Error writing localStorage', e);
+      }
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -49,6 +68,11 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, cachedAccessToken);
+    } catch (e) {
+      console.error('Error writing localStorage', e);
+    }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Sign-in error:', error);
@@ -59,14 +83,31 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = (): string | null => {
+  if (!cachedAccessToken) {
+    try {
+      cachedAccessToken = localStorage.getItem(LOCAL_STORAGE_KEY);
+    } catch (e) {
+      console.error('Error reading localStorage', e);
+    }
+  }
   return cachedAccessToken;
 };
 
 export const setAccessToken = (token: string) => {
   cachedAccessToken = token;
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, token);
+  } catch (e) {
+    console.error('Error writing localStorage', e);
+  }
 };
 
 export const googleLogout = async () => {
   await auth.signOut();
   cachedAccessToken = null;
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+  } catch (e) {
+    console.error('Error writing localStorage', e);
+  }
 };

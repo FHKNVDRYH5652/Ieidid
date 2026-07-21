@@ -16,9 +16,23 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
       await onLogin();
     } catch (err: any) {
       console.error(err);
-      if (err.message?.includes('popup-closed-by-user') || err.code?.includes('popup-closed-by-user')) {
+      const errMsg = err.message || '';
+      const errCode = err.code || '';
+      if (errMsg.includes('popup-closed-by-user') || errCode.includes('popup-closed-by-user')) {
         setError(
           'Sign-in popup was closed or blocked. Because the app runs in an iframe sandbox, please make sure popups are allowed, or click the "Open in new tab" (↗) button at the top right of the screen to sign in smoothly!'
+        );
+      } else if (errMsg.includes('unauthorized-domain') || errCode.includes('unauthorized-domain')) {
+        setError(
+          '❌ Unauthorized Domain Error!\n\n' +
+          'English: The domain you are running this app on (e.g., "jdjdjwiis.netlify.app") is not authorized in your Firebase Project.\n' +
+          '👉 To fix this:\n' +
+          '1. Go to Firebase Console -> Authentication -> Settings -> Authorized Domains.\n' +
+          '2. Click "Add Domain" and add "jdjdjwiis.netlify.app".\n\n' +
+          'Hindi: Aapki hosting URL (jdjdjwiis.netlify.app) Firebase me Authorized nahi hai.\n' +
+          '👉 Ise theek karne ke liye:\n' +
+          '1. Firebase Console kholin -> Authentication -> Settings -> Authorized Domains me jayein.\n' +
+          '2. "Add Domain" par click karke "jdjdjwiis.netlify.app" add karein.'
         );
       } else {
         setError(err.message || 'Google Sign-In failed. Please try again.');
@@ -64,9 +78,9 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
           </div>
 
           {error && (
-            <div className="rounded-xl bg-amber-50 p-3 border border-amber-200 flex gap-3 text-xs text-amber-900">
-              <MailWarning className="h-5 w-5 text-amber-600 shrink-0" />
-              <div>{error}</div>
+            <div className="rounded-xl bg-amber-50 p-4 border border-amber-200 flex gap-3 text-xs text-amber-900">
+              <MailWarning className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="whitespace-pre-line leading-relaxed">{error}</div>
             </div>
           )}
 

@@ -147,6 +147,12 @@ export default function ApiSystemDashboard({
     }
   }, [userId]);
 
+  const [apiHostOption, setApiHostOption] = useState<'cloudrun' | 'current'>(
+    typeof window !== 'undefined' && (window.location.hostname.includes('netlify.app') || window.location.hostname.includes('github.dev'))
+      ? 'cloudrun'
+      : 'current'
+  );
+
   const handleCopyKey = () => {
     navigator.clipboard.writeText(apiKey);
     setCopiedKey(true);
@@ -154,8 +160,12 @@ export default function ApiSystemDashboard({
   };
 
   const getApiUrl = () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return `${origin}/api/transactions?apiKey=${apiKey}`;
+    if (typeof window === 'undefined') return '';
+    const cloudRunBase = 'https://ais-dev-w4sjwyn42mvn4kg7blczoh-631580931537.asia-east1.run.app';
+    if (apiHostOption === 'cloudrun') {
+      return `${cloudRunBase}/api/transactions?apiKey=${apiKey}`;
+    }
+    return `${window.location.origin}/api/transactions?apiKey=${apiKey}`;
   };
 
   const handleCopyUrl = () => {
@@ -399,6 +409,34 @@ export default function ApiSystemDashboard({
             <p className="text-slate-500 text-xs mb-4">
               Send an HTTP GET request to this endpoint. It returns a beautifully structured JSON payload of your FamApp transactions in real-time.
             </p>
+
+            {/* Static Hosting warning / helper banner */}
+            {typeof window !== 'undefined' && window.location.hostname.includes('netlify.app') && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 leading-relaxed">
+                <span className="font-bold block mb-0.5">⚠️ Static Frontend Detected (Netlify)</span>
+                Netlify hosts only your static web views, so accessing <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[10px] font-semibold">/api/transactions</code> on Netlify results in a <strong>Page Not Found (404)</strong>. 
+                Your real Express API server is fully running and automatically hosted on <strong>Cloud Run</strong>! We have mapped the URL below to point directly to Cloud Run so your queries succeed instantly.
+              </div>
+            )}
+
+            {/* Interactive host selector */}
+            <div className="mb-4">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2">Backend Server Host:</span>
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
+                <button
+                  onClick={() => setApiHostOption('cloudrun')}
+                  className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg transition-all cursor-pointer ${apiHostOption === 'cloudrun' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  🚀 Cloud Run Backend (Live API)
+                </button>
+                <button
+                  onClick={() => setApiHostOption('current')}
+                  className={`flex-1 text-[10px] font-bold py-1.5 rounded-lg transition-all cursor-pointer ${apiHostOption === 'current' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  💻 Current Domain ({typeof window !== 'undefined' ? window.location.hostname : 'Host'})
+                </button>
+              </div>
+            </div>
           </div>
 
           <div>

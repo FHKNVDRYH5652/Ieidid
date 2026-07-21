@@ -1,0 +1,6 @@
+{
+  "name": "Gmail Dashboard",
+  "description": "A fast and responsive Gmail client that lets you view, search, compose, and manage your emails.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
